@@ -70,7 +70,7 @@ module.exports = async function handler(req, res) {
       try {
         validation = await nibss.validateBvn(bvn);
         attemptsLog.push({ attempt, result: validation });
-        if (validation.valid) break;
+        if (!validation || !(validation.valid || validation.success)) {
       } catch (validateErr) {
         attemptsLog.push({
           attempt,
