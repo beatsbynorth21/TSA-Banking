@@ -50,8 +50,26 @@ module.exports = async function handler(req, res) {
     // Step 2: verify identity before proceeding — this is the
     // "account creation only after successful onboarding and
     // verification" requirement.
-    const validation = await nibss.validateBvn(bvn);
-    if (!validation.valid) {
+    //
+    // The NIBSS sandbox occasionally has a brief consistency delay
+    // right after an insert, where an immediate validate call can
+    // wrongly report "not found." Retry a few times with a short
+    // delay before treating it as a genuine validation failure.
+    let validation = null;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        validation = await nibss.validateBvn(bvn);
+        if (validation.valid) break;
+      } catch (validateErr) {
+        // fall through to retry below
+      }
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
+
+    if (!validation || !validation.valid) {
       return res.status(400).json({ message: "BVN could not be verified" });
     }
 
