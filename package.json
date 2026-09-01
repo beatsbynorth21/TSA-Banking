@@ -1,0 +1,8 @@
+{
+  "name": "nibss-backend",
+  "version": "1.0.0",
+  "description": "Digital banking backend integrating NibssByPhoenix, built for TS Academy assignment",
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
