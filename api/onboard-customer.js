@@ -9,8 +9,8 @@
 //   "bvn": "11-digit test bvn"
 // }
 //
-// Flow (this is what enforces requirement #1 — onboarding before account
-// creation — at YOUR system's level, not just NIBSS's):
+// Flow (this is what enforces requirement #1 -- onboarding before account
+// creation -- at YOUR system's level, not just NIBSS's):
 //   1. Register the BVN with NIBSS
 //   2. Validate the BVN with NIBSS
 //   3. Only if valid, create the bank account
@@ -33,7 +33,6 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Reject duplicate onboarding for the same app customer.
     const existing = await db
       .collection("accounts")
       .where("customerId", "==", customerId)
@@ -44,7 +43,6 @@ module.exports = async function handler(req, res) {
       return res.status(409).json({ message: "This customer already has an account" });
     }
 
-    // Step 1: register identity
     let insertResult;
     try {
       insertResult = await nibss.insertBvn({ bvn, firstName, lastName, dob, phone });
@@ -55,57 +53,47 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Step 2: verify identity before proceeding — this is the
-    // "account creation only after successful onboarding and
-    // verification" requirement.
-    //
-    // The NIBSS sandbox occasionally has a brief consistency delay
-    // right after an insert, where an immediate validate call can
-    // wrongly report "not found." Retry a few times with a short
-    // delay before treating it as a genuine validation failure.
     let validation = null;
     const attemptsLog = [];
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         validation = await nibss.validateBvn(bvn);
-        attemptsLog.push({ attempt, result: validation });
-        if (!validation || !(validation.valid || validation.success)) {
+        attemptsLog.push({ attempt: attempt, result: validation });
+        if (validation.valid || validation.success) break;
       } catch (validateErr) {
         attemptsLog.push({
-          attempt,
+          attempt: attempt,
           error: validateErr.message,
           details: validateErr.data,
         });
       }
       if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise(function (resolve) {
+          setTimeout(resolve, 1500);
+        });
       }
     }
 
-    if (!validation || !validation.valid) {
-      // TEMPORARY: surface debug info directly in the response so we can
-      // see exactly what insert/validate returned, instead of guessing.
+    if (!validation || !(validation.valid || validation.success)) {
       return res.status(400).json({
         message: "BVN could not be verified",
-        debug: { insertResult, attemptsLog },
+        debug: { insertResult: insertResult, attemptsLog: attemptsLog },
       });
     }
 
-    // Step 3: create the account (NIBSS auto pre-funds it with ₦15,000)
     const accountResult = await nibss.createAccount({
       kycType: "bvn",
       kycID: bvn,
-      dob,
+      dob: dob,
     });
 
-    // Step 4: save the link between YOUR customer and this account
     await db.collection("accounts").add({
-      customerId,
+      customerId: customerId,
       accountNumber: accountResult.account.accountNumber,
       accountName: accountResult.account.accountName,
       bankCode: accountResult.account.bankCode,
-      bvn,
+      bvn: bvn,
       createdAt: new Date().toISOString(),
     });
 
