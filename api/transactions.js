@@ -21,10 +21,14 @@ module.exports = async function handler(req, res) {
     const snap = await db
       .collection("transactions")
       .where("customerId", "==", customerId)
-      .orderBy("createdAt", "desc")
       .get();
 
-    const transactions = snap.docs.map((doc) => doc.data());
+    // Sorted here instead of via Firestore's orderBy, which would need
+    // a composite index (filter + sort on different fields) set up in
+    // the Firebase console first.
+    const transactions = snap.docs
+      .map((doc) => doc.data())
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return res.status(200).json({ transactions });
   } catch (err) {
