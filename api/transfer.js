@@ -44,21 +44,46 @@ module.exports = async function handler(req, res) {
     }
 
     // Execute the transfer against the NIBSS sandbox
-    const result = await nibss.transfer({ from: fromAccount, to: toAccount, amount });
+    const rawResult = await nibss.transfer({ from: fromAccount, to: toAccount, amount });
 
-    // Log the transaction under this customer, so /api/transactions
-    // can later return only what belongs to them.
+    // NIBSS's live responses don't always match their docs (we hit this
+    // with validateBvn too) -- some endpoints nest the real payload under
+    // a "data" key instead of returning it flat, or use a different field
+    // name entirely. Check the likely shapes and never let an undefined
+    // value reach Firestore.
+    const payload =
+      rawResult && typeof rawResult.data === "object" && rawResult.data !== null
+        ? rawResult.data
+        : rawResult || {};
+
+    const transactionId =
+      payload.transactionId || payload.id || payload.reference || payload.txnId || "unknown";
+    const status =
+      payload.status || rawResult.status || (rawResult.success ? "success" : "unknown");
+
+    // Log the transaction under this customer, so /api/transactions can
+    // later return only what belongs to them. from/to/amount come from
+    // our own request, so those are trustworthy no matter how NIBSS's
+    // response is shaped.
     await db.collection("transactions").add({
       customerId,
-      transactionId: result.transactionId,
+      transactionId,
       from: fromAccount,
       to: toAccount,
-      amount: result.amount,
-      status: result.status,
+      amount,
+      status,
+      rawNibssResponse: rawResult || null, // TEMP: remove once transactionId/status look right
       createdAt: new Date().toISOString(),
     });
 
-    return res.status(200).json(result);
+    return res.status(200).json({
+      transactionId,
+      status,
+      amount,
+      from: fromAccount,
+      to: toAccount,
+      raw: rawResult,
+    });
   } catch (err) {
     console.error(err);
     return res.status(err.status || 500).json({
